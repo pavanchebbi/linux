@@ -10,6 +10,8 @@
 #ifndef BNXT_ULP_H
 #define BNXT_ULP_H
 
+#include <linux/auxiliary_bus.h>
+
 #define BNXT_MIN_ROCE_CP_RINGS	2
 #define BNXT_MIN_ROCE_STAT_CTXS	1
 
@@ -24,6 +26,12 @@ enum bnxt_ulp_auxdev_type {
 	BNXT_AUXDEV_RDMA = 0,
 	BNXT_AUXDEV_FWCTL,
 	__BNXT_AUXDEV_MAX
+};
+
+struct bnxt_aux_priv {
+	struct auxiliary_device aux_dev;
+	struct bnxt_en_dev *edev;
+	int id;
 };
 
 struct bnxt_msix_entry {
