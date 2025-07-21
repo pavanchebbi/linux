@@ -35,6 +35,8 @@ struct bnxt_aux_device {
 
 static struct bnxt_aux_device bnxt_aux_devices[__BNXT_AUXDEV_MAX] = {{
 	.name		= "rdma",
+}, {
+	.name		= "fwctl",
 }};
 
 static void bnxt_fill_msix_vecs(struct bnxt *bp, struct bnxt_msix_entry *ent)
@@ -262,6 +264,11 @@ void bnxt_ulp_stop(struct bnxt *bp)
 			continue;
 
 		mutex_lock(&edev->en_dev_lock);
+		if (i == BNXT_AUXDEV_FWCTL) {
+			edev->flags |= BNXT_EN_FLAG_ULP_STOPPED;
+			mutex_unlock(&edev->en_dev_lock);
+			continue;
+		}
 		if (!bnxt_ulp_registered(edev) ||
 		    (edev->flags & BNXT_EN_FLAG_ULP_STOPPED)) {
 			mutex_unlock(&edev->en_dev_lock);
@@ -298,7 +305,7 @@ void bnxt_ulp_start(struct bnxt *bp, int err)
 			return;
 
 		mutex_lock(&edev->en_dev_lock);
-		if (!bnxt_ulp_registered(edev) ||
+		if (i == BNXT_AUXDEV_FWCTL || !bnxt_ulp_registered(edev) ||
 		    !(edev->flags & BNXT_EN_FLAG_ULP_STOPPED)) {
 			goto clear_flag_continue;
 		}
@@ -496,7 +503,8 @@ void bnxt_aux_device_add(struct bnxt *bp, enum bnxt_auxdev_type idx)
 	aux_dev = &bp->aux_priv[idx]->aux_dev;
 	rc = auxiliary_device_add(aux_dev);
 	if (rc) {
-		netdev_warn(bp->dev, "Failed to add auxiliary device for ROCE\n");
+		netdev_warn(bp->dev, "Failed to add auxiliary device for auxdev type %d\n",
+			    idx);
 		auxiliary_device_uninit(aux_dev);
 		if (idx == BNXT_AUXDEV_RDMA)
 			bp->flags &= ~BNXT_FLAG_ROCE_CAP;
