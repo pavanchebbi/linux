@@ -28,6 +28,7 @@
 #include "bnxt_hwrm.h"
 
 static DEFINE_IDA(bnxt_rdma_aux_dev_ids);
+static DEFINE_IDA(bnxt_fwctl_aux_dev_ids);
 
 struct bnxt_aux_device {
 	const char *name;
@@ -42,6 +43,7 @@ struct bnxt_aux_device {
 };
 
 static void bnxt_rdma_aux_dev_release(struct device *dev);
+static void bnxt_fwctl_aux_dev_release(struct device *dev);
 
 static void bnxt_rdma_aux_dev_set_priv(struct bnxt *bp,
 				       struct bnxt_aux_priv *priv)
@@ -70,6 +72,33 @@ static struct bnxt_en_dev *bnxt_rdma_aux_dev_get_edev(struct bnxt *bp)
 	return bp->edev_rdma;
 }
 
+static void bnxt_fwctl_aux_dev_set_priv(struct bnxt *bp,
+					struct bnxt_aux_priv *priv)
+{
+	bp->aux_priv_fwctl = priv;
+}
+
+static struct bnxt_aux_priv *bnxt_fwctl_aux_dev_get_priv(struct bnxt *bp)
+{
+	return bp->aux_priv_fwctl;
+}
+
+static struct auxiliary_device *bnxt_fwctl_aux_dev_get_auxdev(struct bnxt *bp)
+{
+	return &bp->aux_priv_fwctl->aux_dev;
+}
+
+static void bnxt_fwctl_aux_dev_set_edev(struct bnxt *bp,
+					struct bnxt_en_dev *edev)
+{
+	bp->edev_fwctl = edev;
+}
+
+static struct bnxt_en_dev *bnxt_fwctl_aux_dev_get_edev(struct bnxt *bp)
+{
+	return bp->edev_fwctl;
+}
+
 static struct bnxt_aux_device bnxt_aux_devices[__BNXT_AUXDEV_MAX] = {{
 	.name		= "rdma",
 	.type		= BNXT_AUXDEV_RDMA,
@@ -80,6 +109,16 @@ static struct bnxt_aux_device bnxt_aux_devices[__BNXT_AUXDEV_MAX] = {{
 	.set_edev       = bnxt_rdma_aux_dev_set_edev,
 	.get_edev	= bnxt_rdma_aux_dev_get_edev,
 	.get_auxdev	= bnxt_rdma_aux_dev_get_auxdev,
+}, {
+	.name		= "fwctl",
+	.type		= BNXT_AUXDEV_FWCTL,
+	.ida		= &bnxt_fwctl_aux_dev_ids,
+	.release	= bnxt_fwctl_aux_dev_release,
+	.set_priv       = bnxt_fwctl_aux_dev_set_priv,
+	.get_priv	= bnxt_fwctl_aux_dev_get_priv,
+	.set_edev       = bnxt_fwctl_aux_dev_set_edev,
+	.get_edev	= bnxt_fwctl_aux_dev_get_edev,
+	.get_auxdev	= bnxt_fwctl_aux_dev_get_auxdev,
 }};
 
 static void bnxt_fill_msix_vecs(struct bnxt *bp, struct bnxt_msix_entry *ent)
@@ -303,6 +342,8 @@ void bnxt_ulp_stop(struct bnxt *bp)
 		}
 	}
 ulp_stop_exit:
+	if (bp->edev_fwctl)
+		bp->edev_fwctl->flags |= BNXT_EN_FLAG_ULP_STOPPED;
 	mutex_unlock(&edev->en_dev_lock);
 }
 
@@ -336,6 +377,8 @@ void bnxt_ulp_start(struct bnxt *bp, int err)
 	}
 ulp_start_exit:
 	edev->flags &= ~BNXT_EN_FLAG_ULP_STOPPED;
+	if (bp->edev_fwctl)
+		bp->edev_fwctl->flags &= ~BNXT_EN_FLAG_ULP_STOPPED;
 	mutex_unlock(&edev->en_dev_lock);
 }
 
@@ -525,11 +568,25 @@ void bnxt_aux_device_add(struct bnxt *bp, enum bnxt_ulp_auxdev_type auxdev_type)
 	aux_dev = bnxt_aux_devices[auxdev_type].get_auxdev(bp);
 	rc = auxiliary_device_add(aux_dev);
 	if (rc) {
-		netdev_warn(bp->dev, "Failed to add auxiliary device for ROCE\n");
+		netdev_warn(bp->dev, "Failed to add auxiliary device for auxdev type %d\n",
+			    auxdev_type);
 		auxiliary_device_uninit(aux_dev);
 		if (bnxt_aux_devices[auxdev_type].type == BNXT_AUXDEV_RDMA)
 			bp->flags &= ~BNXT_FLAG_ROCE_CAP;
 	}
+}
+
+static void bnxt_fwctl_aux_dev_release(struct device *dev)
+{
+	struct bnxt_aux_priv *aux_priv =
+		container_of(dev, struct bnxt_aux_priv, aux_dev.dev);
+	struct bnxt *bp = netdev_priv(aux_priv->edev->net);
+
+	ida_free(&bnxt_fwctl_aux_dev_ids, aux_priv->id);
+	kfree(aux_priv->edev);
+	bp->edev_fwctl = NULL;
+	kfree(bp->aux_priv_fwctl);
+	bp->aux_priv_fwctl = NULL;
 }
 
 void bnxt_aux_device_init(struct bnxt *bp,
@@ -556,8 +613,8 @@ void bnxt_aux_device_init(struct bnxt *bp,
 
 	aux_priv->id = ida_alloc(bnxt_aux_devices[auxdev_type].ida, GFP_KERNEL);
 	if (aux_priv->id < 0) {
-		netdev_warn(bp->dev,
-			    "ida alloc failed for ROCE auxiliary device\n");
+		netdev_warn(bp->dev, "ida alloc failed for %d auxiliary device\n",
+			    auxdev_type);
 		kfree(aux_priv);
 		goto exit;
 	}
