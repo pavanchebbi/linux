@@ -10,6 +10,8 @@
 #ifndef BNXT_ULP_H
 #define BNXT_ULP_H
 
+#include <linux/auxiliary_bus.h>
+
 #define BNXT_MIN_ROCE_CP_RINGS	2
 #define BNXT_MIN_ROCE_STAT_CTXS	1
 
@@ -19,6 +21,17 @@
 
 struct hwrm_async_event_cmpl;
 struct bnxt;
+
+enum bnxt_auxdev_type {
+	BNXT_AUXDEV_RDMA = 0,
+	__BNXT_AUXDEV_MAX
+};
+
+struct bnxt_aux_priv {
+	struct auxiliary_device aux_dev;
+	struct bnxt_en_dev *edev;
+	int id;
+};
 
 struct bnxt_msix_entry {
 	u32	vector;
@@ -116,14 +129,16 @@ void bnxt_ulp_sriov_cfg(struct bnxt *bp, int num_vfs);
 void bnxt_ulp_irq_stop(struct bnxt *bp);
 void bnxt_ulp_irq_restart(struct bnxt *bp, int err);
 void bnxt_ulp_async_events(struct bnxt *bp, struct hwrm_async_event_cmpl *cmpl);
-void bnxt_rdma_aux_device_uninit(struct bnxt *bp);
-void bnxt_rdma_aux_device_del(struct bnxt *bp);
-void bnxt_rdma_aux_device_add(struct bnxt *bp);
-void bnxt_rdma_aux_device_init(struct bnxt *bp);
+void bnxt_aux_device_uninit(struct bnxt *bp, enum bnxt_auxdev_type idx);
+void bnxt_aux_device_del(struct bnxt *bp, enum bnxt_auxdev_type idx);
+void bnxt_aux_device_add(struct bnxt *bp, enum bnxt_auxdev_type idx);
+void bnxt_aux_device_init(struct bnxt *bp, enum bnxt_auxdev_type idx);
 int bnxt_register_dev(struct bnxt_en_dev *edev, struct bnxt_ulp_ops *ulp_ops,
 		      void *handle);
 void bnxt_unregister_dev(struct bnxt_en_dev *edev);
 int bnxt_send_msg(struct bnxt_en_dev *edev, struct bnxt_fw_msg *fw_msg);
 void bnxt_register_async_events(struct bnxt_en_dev *edev,
 				unsigned long *events_bmap, u16 max_id);
+int bnxt_auxdev_id_alloc(struct bnxt *bp);
+void bnxt_auxdev_id_free(struct bnxt *bp, int id);
 #endif
